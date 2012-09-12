@@ -3,8 +3,60 @@
 import subprocess
 import os,re,sys,shutil
 
-dir_artwork = sys.argv[1]
-dir_src = sys.argv[2]
+
+
+try:
+	action = sys.argv[1]
+	dir_artwork = sys.argv[2]
+	dir_src = sys.argv[3]
+except:
+	print "Usage: generate_images <action> <artwork_directory> <android src directory>"
+	print "Action may be 'generate' or 'clean' ."
+	sys.exit(1)
+
+def clean_drawable_folder(known_filenames,dir_drawable):
+	print colour_text("Cleaning %s"%dir_drawable, "GREEN", bold=True)
+	files = os.listdir(dir_drawable)
+	for filename in files:
+		if filename in known_filenames:
+			print colour_text("Removing: %s" % filename, "RED")
+			os.remove(os.path.join(dir_drawable,filename))
+	
+	files = os.listdir(dir_drawable)
+	if len(files) == 0:
+		os.rmdir(dir_drawable)
+
+def clean(dir_artwork,dir_src):
+	known_files = []
+	for filename in os.listdir(dir_artwork):
+		if os.path.isfile(os.path.join(dir_artwork,filename)):
+			if filename.endswith(".svg"):
+				filename = filename[:-4] + ".png"
+			known_files.append(filename)
+	
+	d = os.path.join(dir_src,"res")
+	files = os.listdir(d)
+	for filename in files:
+		if filename.startswith('drawable') and os.path.isdir(os.path.join(d,filename)):
+			clean_drawable_folder(known_files,os.path.join(d,filename))
+	
+##################### COLOUR OUTPUT
+
+#!/usr/bin/env python
+import sys
+COLOURS = (
+    'BLACK', 'RED', 'GREEN', 'YELLOW',
+    'BLUE', 'MAGENTA', 'CYAN', 'WHITE'
+)
+
+def colour_text(text, colour_name='WHITE', bold=False):
+    if colour_name in COLOURS:
+        return '\033[{0};{1}m{2}\033[0m'.format(
+            int(bold), COLOURS.index(colour_name) + 30, text)
+    sys.stderr.write('ERROR: "{0}" is not a valid colour.\n'.format(colour_name))
+    sys.stderr.write('VALID COLOURS: {0}.\n'.format(', '.join(COLOURS)))
+    
+##################
 
 class AndroidImage(object):
 
@@ -23,12 +75,13 @@ class AndroidImage(object):
 			"ldpi": 18
 			},
 		"medium": {
+			"xhdpi": 72, # Guessed; not actually part of the spec
 			"hdpi": 48,
 			"mdpi": 32,
 			"ldpi": 24
 			},
 		"large": {
-			"market": 512,
+			#"market": 512,
 			"xhdpi": 96,
 			"hdpi": 72,
 			"mdpi": 48,
@@ -45,6 +98,7 @@ class AndroidImage(object):
 		"dialog": {"size": "medium"},
 		"list": {"size": "medium"},
 		"image": {"size": None},
+		"drawable": {"size":None},
 		"icon": {"size": "medium"}
 	}
 	
@@ -54,9 +108,12 @@ class AndroidImage(object):
 	@property
 	def type(self):
 		match = re.match("^ic_(([a-zA-Z_]+)_)?",self.name)
-	
+		
 		if match is None:
-			return "image"
+			if self.format.lower() in ['jpg','png','svg']:
+				return "image"
+			else:
+				return "drawable"
 		else:
 			desc = match.groups()[1]
 			if desc == None:
@@ -76,23 +133,37 @@ class AndroidImage(object):
 		return self.img_sizes.get(type['size'])
 	
 	@property
+	def preferred_size(self):
+		name = os.path.splitext(os.path.basename(self.filename))[0]
+		if name.split(".")[-1].isdigit() and not self.filename.endswith(".9.png"):
+			return int(name.split(".")[-1])
+		return None
+	
+	@property
 	def format(self):
 		return os.path.splitext(os.path.basename(self.filename))[1][1:]
 	
 	@property
 	def name(self):
-		return os.path.splitext(os.path.basename(self.filename))[0]
+		name = os.path.splitext(os.path.basename(self.filename))[0]
+		if name.split(".")[-1].isdigit() and not self.filename.endswith(".9.png"):
+			return ".".join(name.split(".")[:-1])
+		return name
+			
 	
 	def get_path(self, dpi=None):
 		if not dpi:
-			return "res/drawable"
+			if self.type == "drawable":
+				return "res/drawable"
+			else:
+				return "res/drawable-nodpi"
 		if dpi in self.dpis:
 			return "res/drawable-%s" % dpi
 		else:
 			return "res/drawable"
 	
 	def __ensure_dest(self,dest):
-		subprocess.call(["mkdir","-p",os.path.dirname(dest)])
+		subprocess.check_call(["mkdir","-p",os.path.dirname(dest)])
 	
 	def convert(self, dest, dpi, size):
 		self.__ensure_dest(dest)
@@ -117,7 +188,8 @@ class AndroidImage(object):
 		if size is not None:
 			command.extend(["-w",str(size),"-h",str(size)])
 		command.append(self.filename)
-		subprocess.call(command)
+		subprocess.check_call(command)
+		print colour_text("Generated PNG from SVG source: %s" % dest,"RED")
 	
 	def _convert_png(self,dest, dpi=None, size=None):
 		command = ["convert", self.filename]
@@ -126,7 +198,8 @@ class AndroidImage(object):
 		if size is not None:
 			command.extend(["-resize","%dx%d"%(size,size)])
 		command.append(dest)
-		subprocess.call(command)
+		subprocess.check_call(command)
+		print colour_text("Generated PNG from PNG source: %s" % dest,"RED")
 	
 	def _colour_correct(self,dest):
 		command = ["convert", dest]
@@ -137,7 +210,8 @@ class AndroidImage(object):
 		if len(command) == 2:
 			return
 		command.append(dest)
-		subprocess.call(command)
+		subprocess.check_call(command)
+		print colour_text("Corrected colours.","RED")
 	
 	def process(self):
 		if self.type not in self.types:
@@ -149,11 +223,21 @@ class AndroidImage(object):
 			for dpi, size in sizes.items():
 				self.convert(os.path.join(dir_src,self.get_path(dpi),self.name+".png"),dpi,size)
 		else:
-			self.convert(os.path.join(dir_src,self.get_path(),self.name+".png"),None,None)
+			self.convert(os.path.join(dir_src,self.get_path(),self.name+".png"),None,self.preferred_size)
+	
+	def __repr__(self):
+		return colour_text(self.filename,"BLUE",True) + " " + colour_text(self.type,"GREEN",False)
 
-
-for filename in os.listdir(dir_artwork):
-	if os.path.isfile(os.path.join(dir_artwork,filename)):
-		AndroidImage(os.path.join(dir_artwork,filename)).process()
+if __name__ == "__main__":
+	if action == "clean":
+		clean(dir_artwork,dir_src)
+		sys.exit(0)
+	elif action == "generate":
+		for filename in os.listdir(dir_artwork):
+			if os.path.isfile(os.path.join(dir_artwork,filename)):
+				imageFile = AndroidImage(os.path.join(dir_artwork,filename))
+				print imageFile
+				imageFile.process()
+				print
 
 

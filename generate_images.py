@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2.7
 
 import subprocess
 import os,re,sys,shutil
@@ -68,6 +68,12 @@ class AndroidImage(object):
 	}
 
 	img_sizes = {
+		"bar": {
+			"xhdpi": 64,
+			"hdpi": 48,
+			"mdpi": 32,
+			"ldpi": 24
+		},
 		"small": {
 			"xhdpi": 48,
 			"hdpi": 36,
@@ -92,7 +98,7 @@ class AndroidImage(object):
 
 	types = {
 		"launcher": {"size": "large"},
-		"menu": {"size":"small","colorspace":"Gray"},
+		"menu": {"size":"bar","colorspace":"Gray"},
 		"stat_notify": {"size": "small"},
 		"tab": {"size": "medium"},
 		"dialog": {"size": "medium"},
@@ -153,14 +159,14 @@ class AndroidImage(object):
 	
 	def get_path(self, dpi=None):
 		if not dpi:
-			if self.type == "drawable":
-				return "res/drawable"
-			else:
-				return "res/drawable-nodpi"
+			#if self.type == "drawable":
+			return "res/drawable-mdpi"
+			#else:
+			#	return "res/drawable-nodpi"
 		if dpi in self.dpis:
 			return "res/drawable-%s" % dpi
 		else:
-			return "res/drawable"
+			return "res/drawable-mdpi"
 	
 	def __ensure_dest(self,dest):
 		subprocess.check_call(["mkdir","-p",os.path.dirname(dest)])
@@ -172,7 +178,7 @@ class AndroidImage(object):
 		
 		if self.format == "svg":
 			self._convert_svg(dest,dpi,size)
-		elif self.format == "png":
+		elif self.format == "png" and not self.filename.endswith(".9.png"):
 			self._convert_png(dest,dpi,size)
 		else:
 			print self.format + " is not a recognised image type. Copying to res/drawable"
